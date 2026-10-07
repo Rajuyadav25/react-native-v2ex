@@ -1,0 +1,99 @@
+# Release Pipeline V1 — DIAGNOSTIC (not the V1 pipeline; no signing secrets, no distribution).
+# Gate ①A baseline of the v1-qualification (remediated) source; upstream base funnyzak/react-native-v2ex@ca38977a
+# using the commands documented by the repository (README) and build-requirements.
+name: v1-diag-baseline
+on:
+  push:
+    branches: ["v1-diag/baseline-remediated"]
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  android-baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Context
+        run: |
+          echo "EVIDENCE=$RUNNER_TEMP/evidence" >> "$GITHUB_ENV"; mkdir -p "$RUNNER_TEMP/evidence"
+          { echo "ImageOS=$ImageOS ImageVersion=$ImageVersion"; echo "head=$(git rev-parse HEAD) tree=$(git rev-parse 'HEAD^{tree}')"; git diff --stat ca38977a5f5b7097d0ddb414e752fbbb54f457a5 HEAD; git diff --quiet ca38977a5f5b7097d0ddb414e752fbbb54f457a5 HEAD -- . ':(exclude).github/workflows/v1-diag-baseline.yml' && echo "source identical to upstream ca38977a (excluding this workflow)"; } | tee "$RUNNER_TEMP/evidence/context.txt"
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '11' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '18' }
+      - name: Yarn classic and NDK
+        run: |
+          npm install -g yarn@1.22.22
+          set +o pipefail; yes | JAVA_HOME="$JAVA_HOME_17_X64" "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;23.1.7779620" "platforms;android-33" "build-tools;33.0.0" > /dev/null; s=${PIPESTATUS[1]}; set -o pipefail; [ "$s" = 0 ]
+          { java -version; node -v; yarn -v; ls "$ANDROID_HOME/ndk"; } 2>&1 | tee "$EVIDENCE/toolchain.txt"
+      - name: Frozen install
+        run: yarn install --frozen-lockfile 2>&1 | tee "$EVIDENCE/yarn-install.txt"
+      - name: Tracked tree after install
+        if: always()
+        run: git status --porcelain=v1 --untracked-files=no | tee "$EVIDENCE/tracked-after-install.txt"
+      - name: "Release build (README: cd android && ./gradlew bundleRelease)"
+        run: |
+          set +e
+          (cd android && ./gradlew bundleRelease --no-daemon --stacktrace) > "$EVIDENCE/gradle.txt" 2>&1
+          status=$?; echo "exit=$status" | tee "$EVIDENCE/gradle-status.txt"; tail -40 "$EVIDENCE/gradle.txt"; exit $status
+      - name: Outputs
+        if: always()
+        run: |
+          find android/app/build/outputs -type f -name '*.aab' -exec ls -l {} \; -exec sha256sum {} \; 2>&1 | tee "$EVIDENCE/outputs.txt" || true
+          git status --porcelain=v1 --untracked-files=no | tee "$EVIDENCE/tracked-after-build.txt"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: v1-diag-baseline-android, path: "${{ runner.temp }}/evidence", retention-days: 30 }
+
+  ios-baseline:
+    runs-on: macos-26
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Xcode 26.6 and context
+        run: |
+          echo "EVIDENCE=$RUNNER_TEMP/evidence" >> "$GITHUB_ENV"; mkdir -p "$RUNNER_TEMP/evidence"
+          sudo xcode-select -s /Applications/Xcode_26.6.0.app/Contents/Developer
+          { echo "ImageOS=$ImageOS ImageVersion=$ImageVersion"; echo "head=$(git rev-parse HEAD) tree=$(git rev-parse 'HEAD^{tree}')"; xcodebuild -version; } 2>&1 | tee "$RUNNER_TEMP/evidence/context.txt"
+      - uses: actions/setup-node@v4
+        with: { node-version: '18' }
+      - uses: ruby/setup-ruby@v1
+        with: { ruby-version: '3.4.5', bundler-cache: false }
+      - name: Yarn classic and CocoaPods 1.16.2
+        run: |
+          npm install -g yarn@1.22.22
+          gem install --no-document cocoapods -v 1.16.2
+          { node -v; yarn -v; ruby -v; pod --version; } 2>&1 | tee "$EVIDENCE/toolchain.txt"
+      - name: Frozen install
+        run: yarn install --frozen-lockfile 2>&1 | tee "$EVIDENCE/yarn-install.txt"
+      - name: Pod install (no committed Podfile.lock)
+        run: |
+          set +e; (cd ios && pod install) > "$EVIDENCE/pod-install.txt" 2>&1; s=$?; echo "exit=$s" >> "$EVIDENCE/pod-install.txt"; tail -30 "$EVIDENCE/pod-install.txt"
+          [ -f ios/Podfile.lock ] && cp ios/Podfile.lock "$EVIDENCE/Podfile.lock.generated"; exit $s
+      - name: Tracked tree after install
+        if: always()
+        run: |
+          git status --porcelain=v1 | tee "$EVIDENCE/status-after-install.txt"
+          git diff > "$EVIDENCE/tracked-after-install.diff"
+      - name: Unsigned iOS Release build
+        env: { RCT_NO_LAUNCH_PACKAGER: "1" }
+        run: |
+          set +e
+          xcodebuild -workspace ios/app.xcworkspace -scheme app -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -derivedDataPath "$RUNNER_TEMP/derived" build > "$EVIDENCE/xcodebuild.txt" 2>&1
+          status=$?; echo "exit=$status" | tee "$EVIDENCE/xcodebuild-status.txt"
+          grep -nE ': (fatal )?error: |\*\* BUILD|The following build commands failed' -A3 "$EVIDENCE/xcodebuild.txt" | head -60; exit $status
+      - name: Outputs
+        if: always()
+        run: |
+          app=$(find "$RUNNER_TEMP/derived/Build/Products" -maxdepth 2 -name '*.app' 2>/dev/null | head -1 || true)
+          { echo "app=$app"; [ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' -c 'Print :CFBundleShortVersionString' -c 'Print :CFBundleVersion' "$app/Info.plist"; } 2>&1 | tee "$EVIDENCE/outputs.txt" || true
+          gzip "$EVIDENCE/xcodebuild.txt" || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: v1-diag-baseline-ios, path: "${{ runner.temp }}/evidence", retention-days: 30 }
