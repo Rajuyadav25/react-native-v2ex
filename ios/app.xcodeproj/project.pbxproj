@@ -501,7 +501,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = github.funnyzak.v2ex;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rajuyadav25.releasepipeline.nplus1;
 				PRODUCT_NAME = app;
 				PROVISIONING_PROFILE_SPECIFIER = "v2ex dist";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -538,7 +538,7 @@
 					"-ObjC",
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = github.funnyzak.v2ex;
+				PRODUCT_BUNDLE_IDENTIFIER = com.rajuyadav25.releasepipeline.nplus1;
 				PRODUCT_NAME = app;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "v2ex app dis m1";
