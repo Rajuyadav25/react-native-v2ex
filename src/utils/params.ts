@@ -3,7 +3,7 @@
  * Last modified at 2022-02-24 18:12:41
  */
 
-export function typedKeys<T>(o: T): (keyof T)[] {
+export function typedKeys<T extends object>(o: T): (keyof T)[] {
   // type cast should be safe because that's what really Object.keys() does
   return Object.keys(o) as (keyof T)[]
 }

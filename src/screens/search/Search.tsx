@@ -35,4 +35,5 @@ Search.defaultProps = {
 const mapStateToProps = (state: RootState) => {
   return { loading: state.member }
 }
+// @ts-expect-error -- defaultProps.loading (boolean) does not match the connected MemberState type; mapStateToProps always supplies `loading` at runtime.
 export default connect(mapStateToProps)(Search)

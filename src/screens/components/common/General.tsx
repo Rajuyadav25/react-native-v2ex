@@ -100,6 +100,7 @@ const HeaderButton = ({
   const { theme } = useTheme()
   return (
     <Pressable onPress={onPress} style={style}>
+      {/* @ts-expect-error -- `width` is passed through at runtime but is not declared in RN 0.71 ImageProps types. */}
       {source && <Image source={source} width={24} />}
       {text && <Text style={styles.headerText(theme, textColor)}>{text}</Text>}
     </Pressable>
