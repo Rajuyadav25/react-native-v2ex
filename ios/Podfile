@@ -74,5 +74,15 @@ target 'app' do
     )
     __apply_Xcode_12_5_M1_post_install_workaround(installer)
     __apply_Xcode_14_3_RC_post_install_workaround(installer)
+
+    # Xcode 26's clang reports Yoga's `operator"" _pt` spelling as
+    # -Wdeprecated-literal-operator, which Yoga.podspec's -Werror makes fatal.
+    # Keep it a warning (no codegen change).
+    installer.pods_project.targets.each do |target|
+      next unless target.name == 'Yoga'
+      target.build_configurations.each do |config|
+        config.build_settings['OTHER_CFLAGS'] = '$(inherited) -Wno-error=deprecated-literal-operator'
+      end
+    end
   end
 end
