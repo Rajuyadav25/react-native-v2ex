@@ -1,0 +1,175 @@
+# Release Pipeline V1
+# Android Signed Release Build Workflow Template
+#
+# Instantiate repository-specific values and optional blocks from
+# build-requirements.md before installing this workflow.
+#
+# Do not guess toolchain versions, package managers, Gradle tasks,
+# signing property names, or output paths. Every double-curly-brace
+# token and replaceable block must trace to a specific
+# build-requirements.md entry.
+#
+# This workflow produces a signed Android App Bundle (AAB) only. It does
+# not submit to Google Play. Distribution acceptance is a separate,
+# later gate and must not be inferred from a successful run of this
+# workflow.
+#
+# This template intentionally targets a Linux GitHub-hosted runner.
+# Android release builds do not require macOS or Windows, and fixing
+# the runner lets the hash step use a single, consistent tool
+# (sha256sum) rather than adding runner-portability abstraction that
+# V1 does not require.
+#
+# This workflow uses a fixed V1 secret-name interface:
+#   ANDROID_KEYSTORE_BASE64
+#   ANDROID_KEYSTORE_PASSWORD
+#   ANDROID_KEY_ALIAS
+#   ANDROID_KEY_PASSWORD
+# These secret names are stable across repositories. Only the
+# environment-variable names consumed by the repository's Gradle
+# signing configuration are repository-specific and parameterized.
+
+name: Android Signed Release Build
+
+on:
+  push:
+    branches: [v1-qualification]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Signed AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Set up Yarn classic
+        run: npm install --global yarn@1.22.22
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --non-interactive
+
+      # NDK 23.1.7779620, platform 33 and build-tools 33.0.0 (build-requirements.md §6). The SDK manager
+      # requires Java 17, so it runs under the runner's JDK 17; the build itself uses JDK 11.
+      - name: Install Android NDK, platform and build-tools
+        run: |
+          set -eu
+          set +o pipefail
+          yes | JAVA_HOME="${JAVA_HOME_17_X64}" "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" "ndk;23.1.7779620" "platforms;android-33" "build-tools;33.0.0" > /dev/null
+          status=${PIPESTATUS[1]}
+          set -o pipefail
+          [ "${status}" -eq 0 ]
+
+      - name: Reconstruct Android signing material
+        id: signing
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          SIGNING_DIR="${RUNNER_TEMP}/android-signing"
+          mkdir -p "${SIGNING_DIR}"
+          chmod 700 "${SIGNING_DIR}"
+          KEYSTORE_PATH="${SIGNING_DIR}/release.keystore"
+          printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
+          chmod 600 "${KEYSTORE_PATH}"
+          echo "keystore-path=${KEYSTORE_PATH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build release AAB
+        working-directory: android
+        env:
+          V1_ANDROID_KEYSTORE_PATH: ${{ steps.signing.outputs.keystore-path }}
+          V1_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          V1_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          V1_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew bundleRelease --no-daemon
+
+      - name: Confirm AAB exists
+        run: |
+          set -euo pipefail
+          if [ ! -f "android/app/build/outputs/bundle/release/app-release.aab" ]; then
+            echo "Expected AAB not found at android/app/build/outputs/bundle/release/app-release.aab" >&2
+            exit 1
+          fi
+
+      - name: Verify AAB signature
+        run: |
+          set -euo pipefail
+          jarsigner -verify -verbose -certs "android/app/build/outputs/bundle/release/app-release.aab" 2>&1 | tee "android/app/build/outputs/bundle/release/app-release.aab.jarsigner-verify.txt"
+          grep -q "jar verified." "android/app/build/outputs/bundle/release/app-release.aab.jarsigner-verify.txt"
+
+          # "jar verified." also holds for a debug-keystore signature, so bind
+          # the signer to the expected owner-controlled certificate (non-secret
+          # SHA-256 fingerprint, as keytool prints it).
+          keytool -printcert -jarfile "android/app/build/outputs/bundle/release/app-release.aab" 2>&1 | tee "android/app/build/outputs/bundle/release/app-release.aab.signer.txt"
+          SIGNER_FINGERPRINTS=$(sed -n 's/^[[:space:]]*SHA256:[[:space:]]*//p' "android/app/build/outputs/bundle/release/app-release.aab.signer.txt" | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]' | sort -u)
+          EXPECTED_FINGERPRINT=$(printf '%s' "0F:42:4B:FC:39:B8:D7:A4:92:32:A8:5D:9F:65:26:3E:ED:E9:D4:80:F7:61:CF:71:AA:6A:BB:F6:EE:ED:F9:32" | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')
+          if [ "$(printf '%s\n' "${SIGNER_FINGERPRINTS}" | grep -c .)" -ne 1 ]; then
+            echo "Expected exactly one signer certificate, found: ${SIGNER_FINGERPRINTS}" >&2
+            exit 1
+          fi
+          if [ "${SIGNER_FINGERPRINTS}" != "${EXPECTED_FINGERPRINT}" ]; then
+            echo "Signer certificate SHA-256 mismatch: expected ${EXPECTED_FINGERPRINT}, got ${SIGNER_FINGERPRINTS}" >&2
+            exit 1
+          fi
+
+      - name: Compute SHA-256
+        run: |
+          set -euo pipefail
+          sha256sum "android/app/build/outputs/bundle/release/app-release.aab" | tee "android/app/build/outputs/bundle/release/app-release.aab.sha256"
+          ARTIFACT_DIR="${RUNNER_TEMP}/v1-android-artifact"
+          rm -rf "${ARTIFACT_DIR}"
+          mkdir -p "${ARTIFACT_DIR}"
+          chmod 700 "${ARTIFACT_DIR}"
+          cp "android/app/build/outputs/bundle/release/app-release.aab" "${ARTIFACT_DIR}/release.aab"
+          cp "android/app/build/outputs/bundle/release/app-release.aab.sha256" "${ARTIFACT_DIR}/release.aab.sha256"
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            WORKFLOW_PATH="${GITHUB_WORKFLOW_REF#${GITHUB_REPOSITORY}/}"
+            WORKFLOW_PATH="${WORKFLOW_PATH%@*}"
+            echo "workflow_path=${WORKFLOW_PATH}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT}"
+            echo "sha=${GITHUB_SHA}"
+            echo "ref=${GITHUB_REF}"
+            echo "artifact_name=nplus1-release-aab"
+            echo "artifact_path=android/app/build/outputs/bundle/release/app-release.aab"
+            ARTIFACT_HASH=$(awk '{print $1}' "android/app/build/outputs/bundle/release/app-release.aab.sha256")
+            echo "sha256=${ARTIFACT_HASH}"
+            echo "signer_cert_sha256=$(printf '%s' "0F:42:4B:FC:39:B8:D7:A4:92:32:A8:5D:9F:65:26:3E:ED:E9:D4:80:F7:61:CF:71:AA:6A:BB:F6:EE:ED:F9:32" | tr -d ':[:space:]' | tr '[:lower:]' '[:upper:]')"
+          } > "${ARTIFACT_DIR}/release.aab.provenance.txt"
+          cp "android/app/build/outputs/bundle/release/app-release.aab.jarsigner-verify.txt" "${ARTIFACT_DIR}/release.aab.jarsigner-verify.txt"
+          cp "android/app/build/outputs/bundle/release/app-release.aab.signer.txt" "${ARTIFACT_DIR}/release.aab.signer.txt"
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nplus1-release-aab
+          path: ${{ runner.temp }}/v1-android-artifact
+          retention-days: 30
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          rm -rf "${RUNNER_TEMP}/android-signing"
