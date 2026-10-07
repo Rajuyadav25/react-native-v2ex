@@ -119,7 +119,15 @@ android {
         }
 
         release {
-            if (project.hasProperty('APP_STORE_FILE')) {
+            if (System.getenv("V1_ANDROID_KEYSTORE_PATH")) {
+                // Release Pipeline V1: owner signing material is supplied only through
+                // environment variables by the V1 Android build workflow (secrets are
+                // never committed). Without them, upstream signing below is unchanged.
+                storeFile file(System.getenv("V1_ANDROID_KEYSTORE_PATH"))
+                storePassword System.getenv("V1_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("V1_ANDROID_KEY_ALIAS")
+                keyPassword System.getenv("V1_ANDROID_KEY_PASSWORD")
+            } else if (project.hasProperty('APP_STORE_FILE')) {
                 storeFile file(APP_STORE_FILE)
                 storePassword APP_STORE_PASSWORD
                 keyAlias APP_KEY_ALIAS
