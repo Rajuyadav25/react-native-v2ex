@@ -21,7 +21,7 @@ jobs:
       - name: Context
         run: |
           echo "EVIDENCE=$RUNNER_TEMP/evidence" >> "$GITHUB_ENV"; mkdir -p "$RUNNER_TEMP/evidence"
-          { echo "ImageOS=$ImageOS ImageVersion=$ImageVersion"; echo "head=$(git rev-parse HEAD) tree=$(git rev-parse 'HEAD^{tree}')"; git diff --stat ca38977a5f5b7097d0ddb414e752fbbb54f457a5 HEAD; git diff --quiet ca38977a5f5b7097d0ddb414e752fbbb54f457a5 HEAD -- . ':(exclude).github/workflows/v1-diag-baseline.yml' && echo "source identical to upstream ca38977a (excluding this workflow)"; } | tee "$RUNNER_TEMP/evidence/context.txt"
+          { echo "ImageOS=$ImageOS ImageVersion=$ImageVersion"; echo "head=$(git rev-parse HEAD) tree=$(git rev-parse 'HEAD^{tree}')"; git diff --stat ca38977a5f5b7097d0ddb414e752fbbb54f457a5 HEAD; git diff --quiet ca38977a5f5b7097d0ddb414e752fbbb54f457a5 HEAD -- . ':(exclude).github/workflows/v1-diag-baseline.yml' && echo "source identical to upstream ca38977a (excluding this workflow)" || echo "source differs from upstream ca38977a (remediation commits)"; } | tee "$RUNNER_TEMP/evidence/context.txt"
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '11' }
       - uses: actions/setup-node@v4
@@ -97,3 +97,36 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with: { name: v1-diag-baseline-ios, path: "${{ runner.temp }}/evidence", retention-days: 30 }
+
+  ios-lock-portability:
+    # Section 13A: install from two checkouts at different absolute paths; compare Podfile.lock.
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Xcode 26.6
+        run: |
+          echo "EVIDENCE=$RUNNER_TEMP/evidence" >> "$GITHUB_ENV"; mkdir -p "$RUNNER_TEMP/evidence"
+          sudo xcode-select -s /Applications/Xcode_26.6.0.app/Contents/Developer
+      - uses: actions/setup-node@v4
+        with: { node-version: '18' }
+      - uses: ruby/setup-ruby@v1
+        with: { ruby-version: '3.4.5', bundler-cache: false }
+      - name: Tools
+        run: npm install -g yarn@1.22.22 && gem install --no-document cocoapods -v 1.16.2
+      - name: Install from two checkout paths
+        run: |
+          A="$GITHUB_WORKSPACE"; B="$RUNNER_TEMP/second-checkout/elsewhere/react-native-v2ex"
+          git clone -q "$A" "$B"; git -C "$B" checkout -q "$(git -C "$A" rev-parse HEAD)"
+          for P in "$A" "$B"; do
+            tag=$([ "$P" = "$A" ] && echo A || echo B); echo "$tag=$P" | tee -a "$EVIDENCE/paths.txt"
+            ( cd "$P" && yarn install --frozen-lockfile > "$EVIDENCE/install-$tag.txt" 2>&1 && cd ios && pod install > "$EVIDENCE/pod-$tag.txt" 2>&1 )
+            cp "$P/ios/Podfile.lock" "$EVIDENCE/Podfile.lock.$tag"
+            mkdir -p "$EVIDENCE/local-podspecs-$tag"; cp "$P"/ios/Pods/Local\ Podspecs/*.json "$EVIDENCE/local-podspecs-$tag/" || true
+          done
+          { echo "== A vs B"; diff "$EVIDENCE/Podfile.lock.A" "$EVIDENCE/Podfile.lock.B" && echo IDENTICAL; } | tee "$EVIDENCE/comparison.txt" || true
+          if [ -f ios/Podfile.lock ] && git ls-files --error-unmatch ios/Podfile.lock >/dev/null 2>&1; then { echo "== committed vs A"; git show HEAD:ios/Podfile.lock | diff - "$EVIDENCE/Podfile.lock.A" && echo IDENTICAL; } | tee -a "$EVIDENCE/comparison.txt" || true; fi
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: v1-diag-lock-portability, path: "${{ runner.temp }}/evidence", retention-days: 30 }
