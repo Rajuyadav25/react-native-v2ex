@@ -95,7 +95,7 @@ android {
 
     namespace "github.funnyzak.v2ex"
     defaultConfig {
-        applicationId "github.funnyzak.v2ex"
+        applicationId "com.rajuyadav25.releasepipeline.nplus1"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 42
