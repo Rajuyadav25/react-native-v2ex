@@ -74,7 +74,7 @@ jobs:
         run: yarn install --frozen-lockfile 2>&1 | tee "$EVIDENCE/yarn-install.txt"
       - name: Pod install (no committed Podfile.lock)
         run: |
-          set +e; (cd ios && pod install) > "$EVIDENCE/pod-install.txt" 2>&1; s=$?; echo "exit=$s" >> "$EVIDENCE/pod-install.txt"; tail -30 "$EVIDENCE/pod-install.txt"
+          set +e; (cd ios && NO_FLIPPER=1 pod install) > "$EVIDENCE/pod-install.txt" 2>&1; s=$?; echo "exit=$s" >> "$EVIDENCE/pod-install.txt"; tail -30 "$EVIDENCE/pod-install.txt"
           [ -f ios/Podfile.lock ] && cp ios/Podfile.lock "$EVIDENCE/Podfile.lock.generated"; exit $s
       - name: Tracked tree after install
         if: always()
@@ -121,7 +121,7 @@ jobs:
           git clone -q "$A" "$B"; git -C "$B" checkout -q "$(git -C "$A" rev-parse HEAD)"
           for P in "$A" "$B"; do
             tag=$([ "$P" = "$A" ] && echo A || echo B); echo "$tag=$P" | tee -a "$EVIDENCE/paths.txt"
-            ( cd "$P" && yarn install --frozen-lockfile > "$EVIDENCE/install-$tag.txt" 2>&1 && cd ios && pod install > "$EVIDENCE/pod-$tag.txt" 2>&1 )
+            ( cd "$P" && yarn install --frozen-lockfile > "$EVIDENCE/install-$tag.txt" 2>&1 && cd ios && NO_FLIPPER=1 pod install > "$EVIDENCE/pod-$tag.txt" 2>&1 )
             cp "$P/ios/Podfile.lock" "$EVIDENCE/Podfile.lock.$tag"
             mkdir -p "$EVIDENCE/local-podspecs-$tag"; cp "$P"/ios/Pods/Local\ Podspecs/*.json "$EVIDENCE/local-podspecs-$tag/" || true
           done
