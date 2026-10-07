@@ -29,7 +29,7 @@ jobs:
       - name: Yarn classic and NDK
         run: |
           npm install -g yarn@1.22.22
-          set +o pipefail; yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;23.1.7779620" "platforms;android-33" "build-tools;33.0.0" > /dev/null; s=${PIPESTATUS[1]}; set -o pipefail; [ "$s" = 0 ]
+          set +o pipefail; yes | JAVA_HOME="$JAVA_HOME_17_X64" "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;23.1.7779620" "platforms;android-33" "build-tools;33.0.0" > /dev/null; s=${PIPESTATUS[1]}; set -o pipefail; [ "$s" = 0 ]
           { java -version; node -v; yarn -v; ls "$ANDROID_HOME/ndk"; } 2>&1 | tee "$EVIDENCE/toolchain.txt"
       - name: Frozen install
         run: yarn install --frozen-lockfile 2>&1 | tee "$EVIDENCE/yarn-install.txt"
