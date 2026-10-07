@@ -1,0 +1,53 @@
+# Release Pipeline V1
+# PR Verification Workflow Template
+#
+# Instantiate repository-specific values and optional blocks from
+# build-requirements.md before installing this workflow.
+#
+# Do not guess package managers, commands, checks, or cache behavior.
+# Remove checks that inspection establishes are not applicable.
+
+name: PR Checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Set up Yarn classic
+        run: npm install --global yarn@1.22.22
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile --non-interactive
+
+      - name: Lint
+        run: yarn lint:code
+
+      - name: Type check
+        run: yarn tsc --noEmit
+
+      - name: Format check
+        run: yarn lint:style
+
+      - name: Test
+        run: yarn test --ci --forceExit

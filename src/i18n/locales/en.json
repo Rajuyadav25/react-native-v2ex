@@ -200,7 +200,7 @@
   "link": {
     "getToken": "Get token Here",
     "skipLogin": "Skip Login",
-    "confirmTerms": "By logging in, you agree to Terms of Service and Privacy Policy.",
+    "confirmTerms": "By logging in, you agree to Terms of Service and Privacy Policy."
   },
   "tips": {
     "authSuccess": "Auth Success.",

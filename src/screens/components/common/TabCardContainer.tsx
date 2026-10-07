@@ -29,6 +29,7 @@ const TabCardContainer: React.FC<TabCardContainerProps> = ({
     return (
       <View style={[SylCommon.Card.container(theme), styles.container(theme), containerStyle]}>
         <View style={styles.tabBar(theme)}>
+          {/* @ts-expect-error -- `width`/`height` are passed through at runtime but are not declared in RN 0.71 ImageProps types. */}
           {icon && <Image source={icon} width={20} height={20} style={{ marginRight: theme.spacing.small }} />}
           <Text style={{ ...theme.typography.bodyText }}>{title ?? ''}</Text>
         </View>
