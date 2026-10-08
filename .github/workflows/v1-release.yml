@@ -258,7 +258,7 @@ jobs:
         env:
           ANDROID_AAB_PATH: ${{ runner.temp }}/v1-dist/android/release.aab
           ANDROID_PACKAGE_NAME: com.rajuyadav25.releasepipeline.nplus1
-          ANDROID_VERSION_CODE: '42'
+          ANDROID_VERSION_CODE: '43'
           ANDROID_DISTRIBUTION_EVIDENCE_PATH: ${{ runner.temp }}/android-distribution-evidence.json
         run: fastlane android distribute_internal
 
