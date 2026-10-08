@@ -95,5 +95,15 @@ target 'app' do
         config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
       end
     end
+
+    # App Store Connect rejects executables that contain bitcode (ITMS-90482);
+    # React Native 0.71's prebuilt Hermes framework contains it. Strip it from
+    # the downloaded binaries with Apple's bitcode_strip, failing if none is found.
+    hermes_bins = Dir.glob(File.join(installer.sandbox.root, 'hermes-engine', '**', 'hermes.framework', '**', 'hermes'))
+                     .select { |f| File.file?(f) }.map { |f| File.realpath(f) }.uniq
+    raise 'hermes.framework binaries not found' if hermes_bins.empty?
+    hermes_bins.each do |bin|
+      system('xcrun', 'bitcode_strip', '-r', bin, '-o', bin) || raise("bitcode_strip failed: #{bin}")
+    end
   end
 end
