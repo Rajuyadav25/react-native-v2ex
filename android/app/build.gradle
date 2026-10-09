@@ -98,7 +98,7 @@ android {
         applicationId "com.rajuyadav25.releasepipeline.nplus1"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 43
+        versionCode 44
         versionName "0.8.8"
     }
 
